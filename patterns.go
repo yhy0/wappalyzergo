@@ -2,7 +2,9 @@ package wappalyzer
 
 import (
 	"fmt"
-	"regexp"
+	"github.com/dlclark/regexp2"
+
+	regexp "github.com/wasilibs/go-re2"
 	"strconv"
 	"strings"
 )
@@ -10,7 +12,8 @@ import (
 // ParsedPattern encapsulates a regular expression with
 // additional metadata for confidence and version extraction.
 type ParsedPattern struct {
-	regex *regexp.Regexp
+	regex  *regexp.Regexp
+	regex2 *regexp2.Regexp // regexp 解析正则失败时，regexp2顶上
 
 	Confidence int
 	Version    string
@@ -33,15 +36,24 @@ func ParsePattern(pattern string) (*ParsedPattern, error) {
 			regexPattern := part
 
 			regexPattern = strings.ReplaceAll(regexPattern, "/", "\\/")
-			regexPattern = strings.ReplaceAll(regexPattern, "\\+", "__escapedPlus__")
-			regexPattern = strings.ReplaceAll(regexPattern, "+", "{1,250}")
-			regexPattern = strings.ReplaceAll(regexPattern, "*", "{0,250}")
-			regexPattern = strings.ReplaceAll(regexPattern, "__escapedPlus__", "\\+")
+
+			// 替换后有些正则就匹配不到了，应该哪里有问题，这里使用  go-re2 就不用他考虑的性能问题了
+			// regexPattern = strings.ReplaceAll(regexPattern, "\\+", "__escapedPlus__")
+			// regexPattern = strings.ReplaceAll(regexPattern, "+", "{1,250}")
+			// regexPattern = strings.ReplaceAll(regexPattern, "*", "{0,250}")
+			// regexPattern = strings.ReplaceAll(regexPattern, "__escapedPlus__", "\\+")
 
 			var err error
 			p.regex, err = regexp.Compile("(?i)" + regexPattern)
 			if err != nil {
-				return nil, err
+				// 好些正则，不论是使用 go 的 regexp 包，还是 github.com/wasilibs/go-re2 都会出现解析错误的情况，这里使用 github.com/dlclark/regexp2 看看情况
+				reg2, err := regexp2.Compile(regexPattern, 0)
+				if err != nil {
+					return nil, err
+				} else {
+					p.regex2 = reg2
+					return p, nil
+				}
 			}
 		} else {
 			keyValue := strings.SplitN(part, ":", 2)
@@ -70,16 +82,29 @@ func (p *ParsedPattern) Evaluate(target string) (bool, string) {
 	if p.SkipRegex {
 		return true, ""
 	}
-	if p.regex == nil {
+	if p.regex == nil && p.regex2 == nil {
 		return false, ""
-	}
+	} else if p.regex == nil && p.regex2 != nil {
+		submatches, err := p.regex2.FindStringMatch(target)
+		if err != nil {
+			return false, ""
+		}
+		var matches []string
 
-	submatches := p.regex.FindStringSubmatch(target)
-	if len(submatches) == 0 {
-		return false, ""
+		for submatches != nil {
+			matches = append(matches, submatches.String())
+			submatches, _ = p.regex2.FindNextMatch(submatches)
+		}
+		extractedVersion, _ := p.extractVersion(matches)
+		return true, extractedVersion
+	} else {
+		submatches := p.regex.FindStringSubmatch(target)
+		if len(submatches) == 0 {
+			return false, ""
+		}
+		extractedVersion, _ := p.extractVersion(submatches)
+		return true, extractedVersion
 	}
-	extractedVersion, _ := p.extractVersion(submatches)
-	return true, extractedVersion
 }
 
 // extractVersion uses the provided pattern to extract version information from a target string.

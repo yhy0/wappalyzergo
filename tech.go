@@ -8,8 +8,9 @@ import (
 
 // Wappalyze is a client for working with tech detection
 type Wappalyze struct {
-	original     *Fingerprints
-	fingerprints *CompiledFingerprints
+	original          *Fingerprints
+	fingerprints      *CompiledFingerprints
+	FingerprintHubMap map[string][]FingerprintHub
 }
 
 // New creates a new tech detection instance
@@ -24,6 +25,12 @@ func New() (*Wappalyze, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	err = wappalyze.LoadFingerprintHubFingers()
+	if err != nil {
+		return nil, err
+	}
+
 	return wappalyze, nil
 }
 
@@ -83,6 +90,16 @@ func (s *Wappalyze) Fingerprint(headers map[string][]string, body []byte) map[st
 	for _, app := range bodyTech {
 		uniqueFingerprints.SetIfNotExists(app.application, app.version, app.confidence)
 	}
+
+	// https://github.com/0x727/FingerprintHub/ 指纹检测
+	fh := s.Identify(headers, body)
+	if fh != "" {
+		uniqueFingerprints.SetIfNotExists(fh, "0.0.1", 100)
+	}
+	if Honeypot(string(body)) {
+		uniqueFingerprints.SetIfNotExists("Honeypot", "0.0.1", 100)
+	}
+
 	return uniqueFingerprints.GetValues()
 }
 

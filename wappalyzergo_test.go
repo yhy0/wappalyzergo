@@ -15,6 +15,14 @@ func TestCookiesDetect(t *testing.T) {
 	}, []byte(""))
 	require.Contains(t, matches, "Microsoft Advertising", "Could not get correct match")
 
+	matches = wappalyzer.Fingerprint(map[string][]string{}, []byte(`<html>
+<head>
+<script src="/1.2.3-rc1.2.3/angular.min.js"></script>
+</head>
+</html>`))
+
+	require.Contains(t, matches, "AngularJS", "Could not get correct match")
+
 	t.Run("position", func(t *testing.T) {
 		wappalyzerClient, _ := New()
 
