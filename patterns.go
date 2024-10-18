@@ -3,8 +3,6 @@ package wappalyzer
 import (
 	"fmt"
 	"github.com/dlclark/regexp2"
-	"os"
-
 	regexp "github.com/wasilibs/go-re2"
 	"strconv"
 	"strings"
@@ -14,7 +12,7 @@ import (
 // additional metadata for confidence and version extraction.
 type ParsedPattern struct {
 	regex  *regexp.Regexp
-	regex2 *regexp2.Regexp // regexp 解析正则失败时，regexp2顶上
+	regex2 *regexp2.Regexp // 一些正则的高级特性支持
 
 	Confidence int
 	Version    string
@@ -45,28 +43,17 @@ func ParsePattern(pattern string) (*ParsedPattern, error) {
 			// regexPattern = strings.ReplaceAll(regexPattern, "__escapedPlus__", "\\+")
 
 			var err error
+			regexPattern = "(?i)" + regexPattern
 
-			// 保存原始的标准错误
-			originalStderr := os.Stderr
-			// 创建一个丢弃输出的 writer , 丢弃丑陋的 re2/re2.cc:231: Error parsing
-			devNull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0644)
-			if err != nil {
-				panic(err)
+			// re2 和 go不支持一些高级特性，使用 github.com/dlclark/regexp2 来处理
+			if strings.Contains(regexPattern, "(?!") || strings.Contains(regexPattern, "(?<") {
+				p.regex2, err = regexp2.Compile(regexPattern, 0)
+			} else {
+				p.regex, err = regexp.Compile("(?i)" + regexPattern)
 			}
-			// 将标准错误重定向到 devNull
-			os.Stderr = devNull
-			p.regex, err = regexp.Compile("(?i)" + regexPattern)
-			// 恢复原始标准错误
-			os.Stderr = originalStderr
+
 			if err != nil {
-				// 好些正则，不论是使用 go 的 regexp 包，还是 github.com/wasilibs/go-re2 都会出现解析错误的情况，这里使用 github.com/dlclark/regexp2 看看情况
-				reg2, err := regexp2.Compile(regexPattern, 0)
-				if err != nil {
-					return nil, err
-				} else {
-					p.regex2 = reg2
-					return p, nil
-				}
+				return nil, err
 			}
 		} else {
 			keyValue := strings.SplitN(part, ":", 2)
